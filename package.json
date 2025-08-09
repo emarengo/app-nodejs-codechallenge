@@ -1,6 +1,6 @@
 {
   "name": "yape-transaction-service",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Anti-fraud transaction processing microservice for Yape code challenge",
   "author": "Ernesto Marengo P. <e.marengop@gmail.com>",
   "private": true,
@@ -25,7 +25,9 @@
     "migration:generate": "npm run typeorm -- migration:generate -d src/config/data-source.ts",
     "migration:run": "npm run typeorm -- migration:run -d src/config/data-source.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d src/config/data-source.ts",
-    "seed": "ts-node src/database/seed.ts"
+    "seed": "ts-node src/database/seed.ts",
+    "docker:dev": "docker-compose up -d postgres zookeeper kafka && npm run start:dev",
+    "docker:logs": "docker-compose logs -f"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.4",
