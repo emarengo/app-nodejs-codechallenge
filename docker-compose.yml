@@ -1,25 +1,118 @@
-version: "3.7"
+version: "3.8"
+
 services:
   postgres:
-    image: postgres:14
+    image: postgres:14-alpine
+    container_name: yape-postgres
+    restart: unless-stopped
     ports:
       - "5432:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=yape_transactions
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d yape_transactions"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - yape-network
+
   zookeeper:
-    image: confluentinc/cp-zookeeper:5.5.3
+    image: confluentinc/cp-zookeeper:7.4.3
+    container_name: yape-zookeeper
+    restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - yape-network
+
   kafka:
-    image: confluentinc/cp-enterprise-kafka:5.5.3
-    depends_on: [zookeeper]
+    image: confluentinc/cp-kafka:7.4.3
+    container_name: yape-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
     environment:
       KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_BROKER_ID: 1
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_JMX_PORT: 9991
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_DELETE_TOPIC_ENABLE: 'true'
     ports:
-      - 9092:9092
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - yape-network
+
+  transaction-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yape-transaction-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=postgres
+      - DB_DATABASE=yape_transactions
+      - KAFKA_BROKER=kafka:29092
+      - KAFKA_CLIENT_ID=transaction-service
+      - KAFKA_GROUP_ID=transaction-group
+      - JWT_SECRET=super-secret-jwt-key-for-production
+      - JWT_EXPIRES_IN=1h
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - yape-network
+
+  anti-fraud-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.anti-fraud
+    container_name: yape-anti-fraud-service
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - KAFKA_BROKER=kafka:29092
+      - KAFKA_CLIENT_ID=anti-fraud-service
+      - KAFKA_GROUP_ID=anti-fraud-group
+    networks:
+      - yape-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  yape-network:
+    driver: bridge
