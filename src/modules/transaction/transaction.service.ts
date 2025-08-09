@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Transaction } from '../../common/entities/transaction.entity';
@@ -6,9 +6,12 @@ import { TransactionType } from '../../common/entities/transaction-type.entity';
 import { TransactionStatus } from '../../common/entities/transaction-status.entity';
 import { CreateTransactionDto } from '../../common/dtos/create-transaction.dto';
 import { TransactionResponseDto } from '../../common/dtos/transaction-response.dto';
+import { KafkaService, TransactionCreatedEvent, TransactionStatusUpdatedEvent } from '../../common/services/kafka.service';
 
 @Injectable()
 export class TransactionService {
+  private readonly logger = new Logger(TransactionService.name);
+
   constructor(
     @InjectRepository(Transaction)
     private transactionRepository: Repository<Transaction>,
@@ -16,7 +19,10 @@ export class TransactionService {
     private transactionTypeRepository: Repository<TransactionType>,
     @InjectRepository(TransactionStatus)
     private transactionStatusRepository: Repository<TransactionStatus>,
-  ) {}
+    private kafkaService: KafkaService,
+  ) {
+    this.initializeKafkaSubscriptions();
+  }
 
   async createTransaction(createTransactionDto: CreateTransactionDto): Promise<TransactionResponseDto> {
     const { accountExternalIdDebit, accountExternalIdCredit, tranferTypeId, value } = createTransactionDto;
@@ -51,6 +57,22 @@ export class TransactionService {
 
     const savedTransaction = await this.transactionRepository.save(transaction);
 
+    const transactionCreatedEvent: TransactionCreatedEvent = {
+      transactionExternalId: savedTransaction.transactionExternalId,
+      accountExternalIdDebit,
+      accountExternalIdCredit,
+      tranferTypeId,
+      value,
+      createdAt: savedTransaction.createdAt.toISOString(),
+    };
+
+    try {
+      await this.kafkaService.publishTransactionCreated(transactionCreatedEvent);
+      this.logger.log(`Transaction created event published for: ${savedTransaction.transactionExternalId}`);
+    } catch (error) {
+      this.logger.error('Failed to publish transaction created event:', error);
+    }
+
     return this.mapToResponseDto(savedTransaction, transactionType, pendingStatus);
   }
 
@@ -69,6 +91,43 @@ export class TransactionService {
       transaction.transactionType,
       transaction.transactionStatus
     );
+  }
+
+  async updateTransactionStatus(transactionExternalId: string, statusName: 'approved' | 'rejected'): Promise<void> {
+    const transaction = await this.transactionRepository.findOne({
+      where: { transactionExternalId }
+    });
+
+    if (!transaction) {
+      throw new NotFoundException(`Transaction with ID ${transactionExternalId} not found`);
+    }
+
+    const newStatus = await this.transactionStatusRepository.findOne({
+      where: { name: statusName }
+    });
+
+    if (!newStatus) {
+      throw new Error(`Status ${statusName} not found in database`);
+    }
+
+    await this.transactionRepository.update(
+      { transactionExternalId },
+      { transactionStatusId: newStatus.id }
+    );
+
+    this.logger.log(`Transaction ${transactionExternalId} status updated to: ${statusName}`);
+  }
+
+  private async initializeKafkaSubscriptions(): Promise<void> {
+    try {
+      await this.kafkaService.subscribeToTransactionStatusUpdates(
+        async (event: TransactionStatusUpdatedEvent) => {
+          await this.updateTransactionStatus(event.transactionExternalId, event.status);
+        }
+      );
+    } catch (error) {
+      this.logger.error('Failed to initialize Kafka subscriptions:', error);
+    }
   }
 
   private mapToResponseDto(
