@@ -1,0 +1,40 @@
+FROM node:18-alpine AS base
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+
+RUN npm ci --only=production && npm cache clean --force
+
+FROM node:18-alpine AS build
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+COPY tsconfig*.json ./
+
+RUN npm ci
+
+COPY src ./src
+
+RUN npm run build
+
+FROM node:18-alpine AS production
+
+WORKDIR /usr/src/app
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nestjs -u 1001
+
+COPY --from=base /usr/src/app/node_modules ./node_modules
+COPY --from=build /usr/src/app/dist ./dist
+COPY package*.json ./
+
+RUN chown -R nestjs:nodejs /usr/src/app
+USER nestjs
+
+EXPOSE 3000
+
+ENV NODE_ENV=production
+
+CMD ["node", "dist/main.js"] 
