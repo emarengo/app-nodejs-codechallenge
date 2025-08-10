@@ -56,7 +56,7 @@ flowchart LR
 
 ### 1. Clone and Deploy
 ```bash
-git clone <repository-url>
+git clone https://github.com/yaperos/app-nodejs-codechallenge.git
 cd yape-test
 ./scripts/deploy.sh
 ```
