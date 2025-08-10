@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TransactionController } from './transaction.controller';
 import { TransactionService } from './transaction.service';
@@ -10,6 +11,7 @@ import { KafkaConfig } from '../../config/kafka.config';
 
 @Module({
   imports: [
+    ConfigModule,
     TypeOrmModule.forFeature([Transaction, TransactionType, TransactionStatus])
   ],
   controllers: [TransactionController],

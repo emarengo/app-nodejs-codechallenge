@@ -76,6 +76,7 @@ services:
       - DB_USERNAME=postgres
       - DB_PASSWORD=postgres
       - DB_DATABASE=yape_transactions
+      - DB_SSL=false
       - KAFKA_BROKER=kafka:29092
       - KAFKA_CLIENT_ID=transaction-service
       - KAFKA_GROUP_ID=transaction-group

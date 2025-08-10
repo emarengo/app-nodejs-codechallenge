@@ -24,7 +24,7 @@ export class AntiFraudService {
       transactionExternalId: transaction.transactionExternalId,
       status: fraudCheckResult.isApproved ? 'approved' : 'rejected',
       reason: fraudCheckResult.reason,
-      updatedAt: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
     };
 
     try {

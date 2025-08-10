@@ -1,5 +1,5 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { Kafka, Producer, Consumer, EachMessagePayload } from 'kafkajs';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Kafka, Consumer, Producer, EachMessagePayload } from 'kafkajs';
 import { KafkaConfig } from '../../config/kafka.config';
 
 export interface TransactionCreatedEvent {
@@ -15,7 +15,7 @@ export interface TransactionStatusUpdatedEvent {
   transactionExternalId: string;
   status: 'approved' | 'rejected';
   reason?: string;
-  updatedAt: string;
+  timestamp: string;
 }
 
 @Injectable()
@@ -23,32 +23,54 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(KafkaService.name);
   private kafka: Kafka;
   private producer: Producer;
-  private consumer: Consumer;
+  private transactionCreatedConsumer: Consumer;
+  private transactionStatusConsumer: Consumer;
 
-  constructor(private kafkaConfig: KafkaConfig) {
+  constructor(private readonly kafkaConfig: KafkaConfig) {
     this.kafka = new Kafka(this.kafkaConfig.getKafkaConfig());
     this.producer = this.kafka.producer(this.kafkaConfig.getProducerConfig());
-    this.consumer = this.kafka.consumer(this.kafkaConfig.getConsumerConfig());
+    this.transactionCreatedConsumer = this.kafka.consumer({
+      ...this.kafkaConfig.getConsumerConfig(),
+      groupId: 'anti-fraud-group',
+    });
+    this.transactionStatusConsumer = this.kafka.consumer({
+      ...this.kafkaConfig.getConsumerConfig(),
+      groupId: 'transaction-group',
+    });
   }
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
+    await this.connect();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.disconnect();
+  }
+
+  async connect(): Promise<void> {
     try {
-      await this.producer.connect();
-      await this.consumer.connect();
-      this.logger.log('Kafka producer and consumer connected successfully');
+      await Promise.all([
+        this.producer.connect(),
+        this.transactionCreatedConsumer.connect(),
+        this.transactionStatusConsumer.connect(),
+      ]);
+      this.logger.log('Kafka producer and consumers connected successfully');
     } catch (error) {
       this.logger.error('Failed to connect to Kafka:', error);
       throw error;
     }
   }
 
-  async onModuleDestroy() {
+  async disconnect(): Promise<void> {
     try {
-      await this.producer.disconnect();
-      await this.consumer.disconnect();
+      await Promise.all([
+        this.producer.disconnect(),
+        this.transactionCreatedConsumer.disconnect(),
+        this.transactionStatusConsumer.disconnect(),
+      ]);
       this.logger.log('Kafka connections closed');
     } catch (error) {
-      this.logger.error('Error disconnecting from Kafka:', error);
+      this.logger.error('Failed to disconnect from Kafka:', error);
     }
   }
 
@@ -69,7 +91,7 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
         ],
       });
 
-      this.logger.log(`Published TransactionCreated event for transaction: ${event.transactionExternalId}`);
+      this.logger.log(`Published TransactionCreated event for: ${event.transactionExternalId}`);
     } catch (error) {
       this.logger.error('Failed to publish TransactionCreated event:', error);
       throw error;
@@ -104,9 +126,9 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     callback: (event: TransactionCreatedEvent) => Promise<void>
   ): Promise<void> {
     try {
-      await this.consumer.subscribe({ topic: 'transaction-created', fromBeginning: false });
+      await this.transactionCreatedConsumer.subscribe({ topic: 'transaction-created', fromBeginning: false });
 
-      await this.consumer.run({
+      await this.transactionCreatedConsumer.run({
         eachMessage: async ({ topic, partition, message }: EachMessagePayload) => {
           try {
             const eventData = JSON.parse(message.value?.toString() || '{}') as TransactionCreatedEvent;
@@ -131,9 +153,9 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     callback: (event: TransactionStatusUpdatedEvent) => Promise<void>
   ): Promise<void> {
     try {
-      await this.consumer.subscribe({ topic: 'transaction-status-updated', fromBeginning: false });
+      await this.transactionStatusConsumer.subscribe({ topic: 'transaction-status-updated', fromBeginning: false });
 
-      await this.consumer.run({
+      await this.transactionStatusConsumer.run({
         eachMessage: async ({ topic, partition, message }: EachMessagePayload) => {
           try {
             const eventData = JSON.parse(message.value?.toString() || '{}') as TransactionStatusUpdatedEvent;

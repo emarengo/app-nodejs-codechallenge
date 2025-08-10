@@ -69,8 +69,8 @@ async function bootstrap() {
     .addTag('Health', 'Service health and monitoring')
     .setContact(
       'Engineering Team',
-      'https://yape.com',
-      'engineering@yape.com'
+      'https://yape.com.pe',
+      'engineering@yape.com.pe'
     )
     .setLicense('MIT', 'https://opensource.org/licenses/MIT')
     .build();

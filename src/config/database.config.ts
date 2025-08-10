@@ -8,6 +8,8 @@ export class DatabaseConfig implements TypeOrmOptionsFactory {
   constructor(private configService: ConfigService) {}
 
   createTypeOrmOptions(): TypeOrmModuleOptions {
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    
     return {
       type: 'postgres',
       host: this.configService.get<string>('DB_HOST'),
@@ -19,7 +21,9 @@ export class DatabaseConfig implements TypeOrmOptionsFactory {
       migrations: [join(__dirname, '..', 'database', 'migrations', '*{.ts,.js}')],
       synchronize: this.configService.get<string>('NODE_ENV') === 'development',
       logging: this.configService.get<string>('NODE_ENV') === 'development',
-      ssl: this.configService.get<string>('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
+      ssl: isProduction && this.configService.get<string>('DB_SSL') !== 'false' 
+        ? { rejectUnauthorized: false } 
+        : false,
     };
   }
 } 
