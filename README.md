@@ -50,9 +50,14 @@ flowchart LR
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Docker & Docker Compose
-- Node.js 18+ (for local development)
-- curl (for testing)
+- **Required**: Docker & Docker Compose
+- **Required**: curl (for testing)
+- **Optional**: Node.js 18+ (for local development)
+- **Optional**: jq (for automated testing with shell scripts)
+  - macOS: `brew install jq`
+  - Ubuntu/Debian: `sudo apt-get install jq`
+  - Windows: Download from [https://stedolan.github.io/jq/](https://stedolan.github.io/jq/)
+  - Alternative: Use Python 3 (usually pre-installed) for JSON parsing
 
 ### 1. Clone and Deploy
 ```bash
@@ -187,7 +192,35 @@ npm run lint           # Run ESLint
 ## 🧪 Testing
 
 ### Test a Complete Flow
+
+#### Option 1: Manual Testing (No dependencies required)
 ```bash
+# 1. Create transaction and copy the transactionExternalId from response
+curl -X POST http://localhost:3000/transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountExternalIdDebit": "550e8400-e29b-41d4-a716-446655440000",
+    "accountExternalIdCredit": "550e8400-e29b-41d4-a716-446655440001",
+    "tranferTypeId": 1,
+    "value": 120.50
+  }'
+
+# 2. Copy the transactionExternalId from above response and replace YOUR_TRANSACTION_ID
+curl http://localhost:3000/transactions/YOUR_TRANSACTION_ID
+
+# 3. Wait a few seconds for anti-fraud processing
+
+# 4. Check final status (should be "approved" or "rejected")
+curl http://localhost:3000/transactions/YOUR_TRANSACTION_ID
+```
+
+#### Option 2: Automated Testing (Requires jq)
+```bash
+# Install jq first (if not available):
+# macOS: brew install jq
+# Ubuntu/Debian: sudo apt-get install jq
+# Windows: Download from https://stedolan.github.io/jq/
+
 # 1. Create transaction
 TRANSACTION_ID=$(curl -s -X POST http://localhost:3000/transactions \
   -H "Content-Type: application/json" \
@@ -202,9 +235,76 @@ TRANSACTION_ID=$(curl -s -X POST http://localhost:3000/transactions \
 curl http://localhost:3000/transactions/$TRANSACTION_ID
 
 # 3. Wait a few seconds for anti-fraud processing
+sleep 5
 
 # 4. Check final status (should be "approved" or "rejected")
 curl http://localhost:3000/transactions/$TRANSACTION_ID
+```
+
+#### Option 3: Using Python (Alternative to jq)
+```bash
+# 1. Create transaction and extract ID using Python
+TRANSACTION_ID=$(curl -s -X POST http://localhost:3000/transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountExternalIdDebit": "550e8400-e29b-41d4-a716-446655440000",
+    "accountExternalIdCredit": "550e8400-e29b-41d4-a716-446655440001",
+    "tranferTypeId": 1,
+    "value": 120.50
+  }' | python3 -c "import sys, json; print(json.load(sys.stdin)['transactionExternalId'])")
+
+# 2. Check transaction status
+curl http://localhost:3000/transactions/$TRANSACTION_ID
+```
+
+### Test Different Scenarios
+
+#### Low Value Transaction (Should be Approved)
+```bash
+curl -X POST http://localhost:3000/transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountExternalIdDebit": "550e8400-e29b-41d4-a716-446655440000",
+    "accountExternalIdCredit": "550e8400-e29b-41d4-a716-446655440001",
+    "tranferTypeId": 1,
+    "value": 120.50
+  }'
+```
+
+#### High Value Transaction (Should be Rejected)
+```bash
+curl -X POST http://localhost:3000/transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountExternalIdDebit": "550e8400-e29b-41d4-a716-446655440000",
+    "accountExternalIdCredit": "550e8400-e29b-41d4-a716-446655440001",
+    "tranferTypeId": 1,
+    "value": 1500.00
+  }'
+```
+
+#### Same Account Transfer (Should be Rejected)
+```bash
+curl -X POST http://localhost:3000/transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountExternalIdDebit": "550e8400-e29b-41d4-a716-446655440000",
+    "accountExternalIdCredit": "550e8400-e29b-41d4-a716-446655440000",
+    "tranferTypeId": 1,
+    "value": 500.00
+  }'
+```
+
+### Unit Tests
+```bash
+# Run all tests
+npm test
+
+# Run tests with coverage
+npm run test:cov
+
+# Run tests in watch mode
+npm run test:watch
 ```
 
 ## 🔄 Event-Driven Architecture
@@ -284,21 +384,6 @@ For high-volume scenarios mentioned in the optional requirements:
    - Redis for frequently accessed data
    - Application-level caching for static data
    - Database query result caching
-
-### Production Deployment
-- Use environment-specific configuration
-- Implement proper secret management
-- Set up monitoring and alerting
-- Configure log aggregation
-- Implement backup strategies
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## 📄 License
 
